@@ -19,9 +19,6 @@ from dotenv import load_dotenv
 load_dotenv()  # or load_dotenv(dotenv_path="/absolute/path/.env")
 
 
-# REMOVE IN PRODUCTION - Only for local development if  needed
-os.environ['HTTP_PROXY'] = 'socks5://14ac63464dbca:b9e059af46@64.84.118.137:12324'
-os.environ['HTTPS_PROXY'] = 'socks5://14ac63464dbca:b9e059af46@64.84.118.137:12324'
 
 
 settings = get_settings()
@@ -33,8 +30,8 @@ app.add_middleware(
     SessionMiddleware,
     secret_key=SESSION_SECRET,
     session_cookie="oauth_session",  # Use different name for OAuth state
-    same_site="lax",   # good for localhost
-    https_only=False,  # set True in production behind HTTPS
+    same_site="none" if os.getenv("ENVIRONMENT") == "production" else "lax",
+    https_only=os.getenv("ENVIRONMENT") == "production",  # True in production
     max_age=60 * 60 * 24 * 7,  # 7 days is fine for OAuth state
 )
 
