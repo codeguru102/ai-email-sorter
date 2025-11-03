@@ -10,7 +10,7 @@ export function cx(...c: (string | false | null | undefined)[]) {
     return `${t(s)} – ${t(e)}`;
   }
   
-  import type { Person } from "@/lib/api";
+  type Person = { id?: string; name?: string; email?: string };
   type Meeting = { id: string; title: string; start: string; end: string; attendees: Person[] };
   
   export function groupByDay(list: Meeting[]) {

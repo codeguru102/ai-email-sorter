@@ -6,7 +6,7 @@ import type { ConnectedAccount as ConnectedAccountType } from "@/app/dashboard/p
 import Link from "next/link";
 import { loginWithGoogle } from "@/lib/auth";
 
-export default function ConnectedAccounts({ accounts }: { accounts: ConnectedAccountType[] }) {
+export default function ConnectedAccounts({ accounts, onConnectNewAccount }: { accounts: ConnectedAccountType[]; onConnectNewAccount?: () => void | Promise<void> }) {
   return (
     <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 h-full">
       <h2 className="text-xl font-semibold text-gray-900 mb-4">Connected Gmail Accounts</h2>
@@ -49,7 +49,7 @@ export default function ConnectedAccounts({ accounts }: { accounts: ConnectedAcc
       </div>
 
       <div className="flex justify-end">
-          <button className="w-full bg-green-500 text-white py-2 px-4 rounded-lg hover:bg-green-600 transition-colors font-medium" onClick={loginWithGoogle} >
+          <button className="w-full bg-green-500 text-white py-2 px-4 rounded-lg hover:bg-green-600 transition-colors font-medium" onClick={onConnectNewAccount ?? loginWithGoogle} >
             Add New Account
           </button>
       </div>
