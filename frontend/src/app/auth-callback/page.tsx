@@ -31,8 +31,17 @@ export default function AuthCallbackPage() {
             // Clear the URL parameters
             window.history.replaceState({}, document.title, '/auth-callback');
             
-            // Wait a bit more for cookie to be fully set
-            await new Promise(resolve => setTimeout(resolve, 500));
+            // Wait for cookie to be fully set
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            // Verify cookie is set before redirecting
+            const hasJwtCookie = document.cookie.includes('jwt_session=');
+            console.log('Cookie verification before redirect:', hasJwtCookie);
+            
+            if (!hasJwtCookie) {
+              console.warn('Cookie not found, storing token in localStorage as fallback');
+              localStorage.setItem('jwt_token', decodedToken);
+            }
             
             // Force a hard redirect to ensure cookies are properly set
             window.location.href = '/dashboard';

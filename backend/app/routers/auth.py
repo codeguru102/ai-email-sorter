@@ -34,8 +34,29 @@ async def google_login(request: Request):
     logger.info("GOOGLE_LOGIN_START: redirect_uri=%s", redirect_uri)
     return await oauth.google.authorize_redirect(request, redirect_uri, access_type="offline", prompt="consent", include_granted_scopes="true")
 
+@router.get("/google/add-account")
+async def google_add_account(request: Request):
+    """Start OAuth flow for adding additional Gmail account"""
+    oauth = get_oauth()
+    redirect_uri = build_add_account_callback_url(request)
+    
+    logger.info("ADD_ACCOUNT_START: redirect_uri=%s", redirect_uri)
+    return await oauth.google.authorize_redirect(
+        request, 
+        redirect_uri, 
+        access_type="offline", 
+        prompt="select_account",  # Force account selection
+        include_granted_scopes="true"
+    )
+
 def build_callback_url(request: Request) -> str:
     url = request.url_for("google_callback")
+    if url.scheme not in ("http", "https"):
+        url = url.replace(scheme="http")
+    return str(url)
+
+def build_add_account_callback_url(request: Request) -> str:
+    url = request.url_for("google_add_account_callback")
     if url.scheme not in ("http", "https"):
         url = url.replace(scheme="http")
     return str(url)
@@ -154,17 +175,91 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
     resp.delete_cookie(SESSION_COOKIE, path="/")
     resp.set_cookie(
         key=SESSION_COOKIE,
-        value=jwt_token,  # Set the actual JWT token, not OAuth state
+        value=jwt_token,
         httponly=False,
-        samesite="lax",
+        samesite="none",  # Changed from "lax" to "none" for cross-origin
         secure=False,
         path="/",
+        domain=None,  # Don't set domain for localhost
         max_age=60 * 60 * 24 * 30,
     )
     
     logger.info("JWT_COOKIE_SET: token_preview=%s", jwt_token[:50] + "...")
     
     return resp
+
+@router.get("/google/add-account-callback", name="google_add_account_callback")
+async def google_add_account_callback(request: Request, db: Session = Depends(get_db)):
+    """Handle OAuth callback for additional Gmail account"""
+    oauth = get_oauth()
+    
+    try:
+        token = await oauth.google.authorize_access_token(request)
+        if not token:
+            raise HTTPException(status_code=400, detail="No token received")
+            
+        # Get user info from new account
+        userinfo = token.get("userinfo")
+        if not userinfo:
+            resp = await oauth.google.get("https://openidconnect.googleapis.com/v1/userinfo", token=token)
+            userinfo = resp.json()
+
+        new_email = userinfo.get("email", "")
+        
+        # Get current user from session
+        session_token = request.cookies.get("jwt_session")
+        if not session_token:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+            
+        user_data = verify_session_jwt(session_token)
+        if not user_data:
+            raise HTTPException(status_code=401, detail="Invalid session")
+            
+        current_user = db.query(User).filter(User.sub == user_data["sub"]).first()
+        if not current_user:
+            raise HTTPException(status_code=401, detail="User not found")
+        
+        # Create a new user entry for the additional account
+        new_user = User(
+            sub=userinfo.get("sub"),
+            email=new_email,
+            name=userinfo.get("name", ""),
+            picture=userinfo.get("picture", "")
+        )
+        db.add(new_user)
+        db.flush()
+        
+        # Store the Google account tokens
+        ga = GoogleAccount(
+            user_id=new_user.id,
+            access_token=token["access_token"],
+            refresh_token=token.get("refresh_token", ""),
+            token_type=token.get("token_type", "Bearer"),
+            expires_at=token.get("expires_at"),
+            scope=token.get("scope", ""),
+            raw_token=json.dumps(token)
+        )
+        db.add(ga)
+        db.commit()
+        
+        # Fetch emails from the new account
+        from ..services.email_service import fetch_and_store_emails, create_default_categories
+        create_default_categories(new_user, db)
+        email_count = await fetch_and_store_emails(new_user, db, max_emails=50)
+        
+        logger.info("Added new account %s with %d emails", new_email, email_count)
+        
+        # Redirect back to dashboard with success message
+        frontend = get_app_settings().CORS_ORIGINS.split(",")[0].strip()
+        redirect_url = f"{frontend}/dashboard?added_account={new_email}&emails={email_count}"
+        
+        return RedirectResponse(url=redirect_url, status_code=302)
+        
+    except Exception as e:
+        logger.error("Add account callback failed: %s", str(e))
+        frontend = get_app_settings().CORS_ORIGINS.split(",")[0].strip()
+        redirect_url = f"{frontend}/dashboard?error=add_account_failed"
+        return RedirectResponse(url=redirect_url, status_code=302)
 
 def _set_session_cookie(resp: RedirectResponse, value: str, frontend_origin: str, request: Request):
     """Set session cookie with proper cross-domain settings"""
@@ -233,10 +328,11 @@ async def create_session(request: Request, db: Session = Depends(get_db)):
         resp.set_cookie(
             key=SESSION_COOKIE,
             value=token,
-            httponly=False,  # Allow frontend to read cookie
-            samesite="lax",  # Use lax for localhost
-            secure=False,  # False for localhost development
+            httponly=False,
+            samesite="none",  # Changed from "lax" to "none" for cross-origin
+            secure=False,
             path="/",
+            domain=None,  # Don't set domain for localhost
             max_age=60 * 60 * 24 * 30,
         )
         
@@ -255,7 +351,14 @@ def get_current_user_info(request: Request, db: Session = Depends(get_db)):
     token = request.cookies.get(SESSION_COOKIE)
     all_cookies = dict(request.cookies)
     
-    logger.info("/ME_CALLED: has_session_cookie=%s, all_cookies=%s", bool(token), all_cookies)
+    # Fallback to Authorization header if no cookie
+    if not token:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header[7:]  # Remove "Bearer " prefix
+            logger.info("/ME_CALLED: Using Authorization header token")
+    
+    logger.info("/ME_CALLED: has_session_cookie=%s, all_cookies=%s", bool(request.cookies.get(SESSION_COOKIE)), all_cookies)
     logger.info("/ME_CALLED: token_preview=%s", token[:50] + "..." if token else "None")
     
     if not token:

@@ -18,9 +18,15 @@ export type SessionResponse = {
 
 
 export async function getMe(): Promise<MeResponse> {
-  console.log("Cookie", document.cookie);
+  console.log("All cookies:", document.cookie);
+  
+  // Check if jwt_session cookie exists
+  const hasJwtCookie = document.cookie.includes('jwt_session=');
+  console.log("Has jwt_session cookie:", hasJwtCookie);
+  
   try {
-    const res = await fetch(`${API}/auth/me`, {
+    // First try with cookies
+    let res = await fetch(`${API}/auth/me`, {
       credentials: "include",
       cache: "no-store",
       headers: {
@@ -29,12 +35,33 @@ export async function getMe(): Promise<MeResponse> {
       },
     });
     
+    // If cookie auth fails, try with localStorage token
+    if (!res.ok && !hasJwtCookie) {
+      const storedToken = localStorage.getItem('jwt_token');
+      if (storedToken) {
+        console.log('Cookie auth failed, trying with stored token');
+        res = await fetch(`${API}/auth/me`, {
+          credentials: "include",
+          cache: "no-store",
+          headers: {
+            "cache-control": "no-cache",
+            pragma: "no-cache",
+            "Authorization": `Bearer ${storedToken}`,
+          },
+        });
+      }
+    }
+    
     if (!res.ok) {
       console.error('Auth check failed:', res.status, res.statusText);
+      // Clear stored token if auth fails
+      localStorage.removeItem('jwt_token');
       return { authenticated: false };
     }
     
-    return res.json();
+    const result = await res.json();
+    console.log('Auth check result:', result);
+    return result;
   } catch (error) {
     console.error('Auth request failed:', error);
     return { authenticated: false };
@@ -80,8 +107,15 @@ export async function createSessionFromToken(token: string): Promise<MeResponse>
       const data: SessionResponse = await response.json();
       console.log('Session created successfully', data.user);
       
-      // Wait a bit for cookie to be set
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // Check if cookie was set
+      console.log('Cookies after session creation:', document.cookie);
+      
+      // Wait longer for cookie to be set
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Verify cookie is now present
+      const hasJwtCookie = document.cookie.includes('jwt_session=');
+      console.log('JWT cookie present after session creation:', hasJwtCookie);
       
       return data.user;
     } else {

@@ -5,6 +5,7 @@ import { getMe, loginWithGoogle, type MeResponse } from "@/lib/auth";
 import ConnectedAccounts from "@/components/dashboard/ConnectedAccounts";
 import CategoryList from "@/components/dashboard/CategoryList";
 import AddCategoryModal from "@/components/dashboard/AddCategoryModal";
+import UncategorizedEmails from "@/components/emails/UncategorizedEmails";
 import { useRouter } from "next/navigation";
 
 // Types for our email sorting app
@@ -139,24 +140,52 @@ export default function ChatPage() {
 
   const connectNewAccount = async () => {
     try {
-      // This will initiate OAuth flow for additional Gmail account
-      // For now, just add a mock account
-      const newAccount: ConnectedAccount = {
-        id: (accounts.length + 1).toString(),
-        email: `additional${accounts.length + 1}@gmail.com`,
-        picture: "https://via.placeholder.com/150",
-        connected_at: new Date().toISOString(),
-        is_primary: false,
-      };
-      setAccounts(prev => [...prev, newAccount]);
+      const API_URL = process.env.NEXT_PUBLIC_API_URL;
+      const response = await fetch(`${API_URL}/emails/add-account`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
+        alert(`✅ ${result.message}`);
+        // Refresh categories to show updated counts
+        await fetchCategories();
+      } else {
+        alert('❌ Failed to add account');
+      }
     } catch (error) {
       console.error('Failed to connect account:', error);
+      alert('❌ Error adding account');
     }
   };
 
   const handleCategoryClick = (category: Category) => {
     // Navigate to category detail page
     router.push(`/categories/${category.id}`);
+  };
+
+  const handleDeleteCategory = async (categoryId: string) => {
+    try {
+      const API_URL = process.env.NEXT_PUBLIC_API_URL;
+      const response = await fetch(`${API_URL}/emails/categories/${categoryId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
+        // Remove the category from state
+        setCategories(prev => prev.filter(cat => cat.id !== categoryId));
+        alert(`✅ ${result.message}`);
+      } else {
+        const error = await response.text();
+        alert(`❌ Failed to delete category: ${error}`);
+      }
+    } catch (error) {
+      console.error('Delete category error:', error);
+      alert('❌ Error deleting category');
+    }
   };
 
   const handleEnableNotifications = async () => {
@@ -244,8 +273,8 @@ export default function ChatPage() {
           </p>
         </div>
  
-        {/* Three Main Sections Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Top Row: Accounts and Categories */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start mb-8">
           
           {/* Section 1: Connected Gmail Accounts */}
           <div className="lg:col-span-1">
@@ -278,8 +307,16 @@ export default function ChatPage() {
               categories={categories}
               onAddCategory={() => setShowAddCategory(true)}
               onCategoryClick={handleCategoryClick}
+              onDeleteCategory={handleDeleteCategory}
             />
           </div>
+        </div>
+        
+        {/* Bottom Row: Uncategorized Emails */}
+        <div className="w-full mt-8">
+          <UncategorizedEmails 
+            onCategorizeClick={handleCategorizeEmails}
+          />
         </div>
       </div>
 
