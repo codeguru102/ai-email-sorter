@@ -29,7 +29,7 @@ export default function AuthCallbackPage() {
             console.log('Authentication successful:', userData.user.email);
             
             // Clear the URL parameters
-            window.history.replaceState({}, document.title, '/auth-callback');
+            //window.history.replaceState({}, document.title, '/auth-callback');
             
             // Wait for cookie to be fully set
             await new Promise(resolve => setTimeout(resolve, 1000));

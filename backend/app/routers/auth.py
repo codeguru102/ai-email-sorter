@@ -270,8 +270,8 @@ def _set_session_cookie(resp: RedirectResponse, value: str, frontend_origin: str
         "key": SESSION_COOKIE,
         "value": value,
         "httponly": False,  # Allow frontend to read cookie
-        "samesite": "lax",  # Use lax for localhost development
-        "secure": False,  # False for localhost development
+        "samesite": "none" if is_production else "lax",  # 'none' required for cross-domain
+        "secure": is_production,  # Must be True when samesite=none
         "path": "/",
         "max_age": 60 * 60 * 24 * 30,
     }
